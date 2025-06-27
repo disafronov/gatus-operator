@@ -171,17 +171,35 @@ def watch_ingresses():
         logging.error("Failed to set up Helm repository")
         return
 
+    deploying = False
+    pending = False
+    last_config = None
+
+    def do_deploy(config):
+        nonlocal deploying, pending, last_config
+        deploying = True
+        while True:
+            if config_changed(config):
+                if not deploy_gatus_chart(config):
+                    logging.error("Deployment failed")
+            if pending:
+                pending = False
+                config = generate_chart_values(networking_v1.list_ingress_for_all_namespaces().items)
+                continue
+            break
+        deploying = False
+
     try:
         # Watch for Ingress changes and update Gatus config
         for _ in w.stream(networking_v1.list_ingress_for_all_namespaces):
             try:
-                # Get all ingresses to generate complete config
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
                 chart_config = generate_chart_values(ingresses)
-
-                if config_changed(chart_config):
-                    if not deploy_gatus_chart(chart_config):
-                        logging.error("Deployment failed")
+                last_config = chart_config
+                if not deploying:
+                    do_deploy(chart_config)
+                else:
+                    pending = True
             except Exception as e:
                 logging.error("Error processing change: %s", e)
     except KeyboardInterrupt:

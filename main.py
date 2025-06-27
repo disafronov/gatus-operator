@@ -17,7 +17,11 @@ GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "2.5.5")
 GATUS_HELM_NAMESPACE = os.getenv("GATUS_HELM_NAMESPACE", "gatus")
 GATUS_HELM_RELEASE = os.getenv("GATUS_HELM_RELEASE", "gatus")
 GATUS_HELM_VALUES = os.getenv("GATUS_HELM_VALUES", "")  # JSON/YAML chart values string
-GATUS_TEMP_CONFIG = "/tmp/gatus-config.yaml"
+GATUS_DB_FILE = os.getenv("GATUS_DB_FILE", "/srv/gatus.db")
+GATUS_TEMP_FILE = os.getenv("GATUS_TEMP_FILE", "/tmp/gatus-config.tmp.yaml")
+
+# Protected config keys that cannot be overwritten by user values
+PROTECTED_CONFIG_KEYS = ["endpoints", "storage"]
 
 # Setup logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,14 +32,14 @@ def get_kubernetes_client():
         config.load_incluster_config()
     except config.ConfigException:
         config.load_kube_config()
-    return client.CoreV1Api(), client.NetworkingV1Api()
+    return client.NetworkingV1Api()
 
 def generate_chart_values(ingresses):
     """Generate Helm chart values based on Ingress resources"""
     # Start with base chart values
     chart_values = {
         "config": {
-            "storage": {"type": "sqlite", "path": "/data/gatus.db"},
+            "storage": {"type": "sqlite", "path": GATUS_DB_FILE},
             "endpoints": []
         }
     }
@@ -45,7 +49,18 @@ def generate_chart_values(ingresses):
         try:
             env_values = yaml.safe_load(GATUS_HELM_VALUES)
             if env_values:
-                chart_values.update(env_values)
+                # Merge user values, but preserve operator-managed sections
+                for key, value in env_values.items():
+                    if key == "config" and isinstance(value, dict):
+                        # Merge config section carefully
+                        if "config" not in chart_values:
+                            chart_values["config"] = {}
+                        for config_key, config_value in value.items():
+                            if config_key not in PROTECTED_CONFIG_KEYS:  # Don't overwrite operator-managed sections
+                                chart_values["config"][config_key] = config_value
+                    else:
+                        # Merge other sections normally
+                        chart_values[key] = value
         except yaml.YAMLError as e:
             logging.error(f"Invalid GATUS_HELM_VALUES YAML: {e}")
     
@@ -101,7 +116,11 @@ def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
     # Check if repo exists
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
-    if result.returncode == 0 and "gatus" in result.stdout:
+    if result.returncode != 0:
+        logging.error(f"Failed to list Helm repos: {result.stderr}")
+        return False
+    
+    if "gatus" in result.stdout:
         pass  # Repo exists
     else:
         # Add repo
@@ -122,7 +141,7 @@ def ensure_helm_repo():
 def config_changed(new_config):
     """Check if configuration has changed and save if needed"""
     try:
-        with open(GATUS_TEMP_CONFIG, 'r') as f:
+        with open(GATUS_TEMP_FILE, 'r') as f:
             old_config = yaml.safe_load(f)
     except (FileNotFoundError, IOError):
         old_config = None
@@ -134,7 +153,7 @@ def config_changed(new_config):
     if old_yaml != new_yaml:
         # Save new config
         try:
-            with open(GATUS_TEMP_CONFIG, 'w') as f:
+            with open(GATUS_TEMP_FILE, 'w') as f:
                 yaml.dump(new_config, f, default_flow_style=False)
         except IOError as e:
             logging.error(f"Failed to save config: {e}")
@@ -144,7 +163,7 @@ def config_changed(new_config):
 
 def watch_ingresses():
     """Watch for Ingress resource changes"""
-    _, networking_v1 = get_kubernetes_client()
+    networking_v1 = get_kubernetes_client()
     w = Watch()
     
     if not ensure_helm_repo():
@@ -154,6 +173,7 @@ def watch_ingresses():
     try:
         for event in w.stream(networking_v1.list_ingress_for_all_namespaces):
             try:
+                # Get all ingresses to generate complete config
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
                 config = generate_chart_values(ingresses)
                 

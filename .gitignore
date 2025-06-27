@@ -1,0 +1,36 @@
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore log files
+*.log
+
+# Ignore virtual environments
+.venv/
+
+# SQLite
+/src/db.sqlite3
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Pytest
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Альтернативные виртуальные окружения
+env/
+venv/
+
+# Django translations
+*.mo
+
+# Django static files
+staticfiles/

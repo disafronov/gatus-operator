@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 import os
-import yaml
 import subprocess
 import tempfile
 import logging
 import signal
 import sys
+from ruamel.yaml import YAML
 from kubernetes import client, config
 from kubernetes.watch import Watch
 
@@ -25,6 +25,9 @@ PROTECTED_CONFIG_KEYS = ["endpoints", "storage"]
 
 # Setup logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Initialize YAML parser
+yaml = YAML()
 
 def get_kubernetes_client():
     """Initialize Kubernetes client"""
@@ -47,14 +50,8 @@ def generate_chart_values(ingresses):
     # Load chart values from environment variable (supports JSON or YAML)
     if GATUS_HELM_VALUES:
         try:
-            env_values = yaml.safe_load(GATUS_HELM_VALUES)
+            env_values = yaml.load(GATUS_HELM_VALUES)
             if env_values:
-                # Check if *defaults anchor is defined in user values
-                defaults_anchor_found = "&defaults" in str(env_values)
-                
-                if not defaults_anchor_found:
-                    raise Exception("GATUS_HELM_VALUES must define &defaults anchor")
-                
                 # Merge user values, but preserve operator-managed sections
                 for key, value in env_values.items():
                     if key == "config" and isinstance(value, dict):
@@ -67,7 +64,7 @@ def generate_chart_values(ingresses):
                     else:
                         # Merge other sections normally
                         chart_values[key] = value
-        except yaml.YAMLError as e:
+        except Exception as e:
             logging.error(f"Invalid GATUS_HELM_VALUES YAML: {e}")
     
     # Ensure config section exists
@@ -75,6 +72,15 @@ def generate_chart_values(ingresses):
         chart_values["config"] = {}
     if "endpoints" not in chart_values["config"]:
         chart_values["config"]["endpoints"] = []
+    
+    # Add default endpoint settings if not provided by user
+    if not any("&x-default-endpoint" in str(chart_values)):
+        chart_values["x-default-endpoint"] = {
+            "&x-default-endpoint": {
+                "interval": "1m",
+                "conditions": ["[STATUS] == 200"]
+            }
+        }
     
     # Add endpoints for each Ingress
     for ingress in ingresses:
@@ -89,8 +95,9 @@ def generate_chart_values(ingresses):
             for path in rule.http.paths:
                 if not path.path:
                     continue
+                
                 chart_values["config"]["endpoints"].append({
-                    "<<": "*defaults",
+                    "<<": "*x-default-endpoint",
                     "name": f"{namespace}: {protocol}://{rule.host}{path.path}",
                     "group": namespace,
                     "url": f"{protocol}://{rule.host}{path.path}"
@@ -143,7 +150,7 @@ def config_changed(new_config):
     """Check if configuration has changed and save if needed"""
     try:
         with open(GATUS_TEMP_FILE, 'r') as f:
-            old_config = yaml.safe_load(f)
+            old_config = yaml.load(f)
     except (FileNotFoundError, IOError):
         old_config = None
     

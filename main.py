@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 from kubernetes import client, config
 from kubernetes.watch import Watch
 
@@ -75,12 +76,12 @@ def generate_chart_values(ingresses):
     
     # Add default endpoint settings if not provided by user
     if "x-default-endpoint" not in chart_values["config"]:
-        chart_values["config"]["x-default-endpoint"] = {
-            "&x-default-endpoint": {
-                "interval": "1m",
-                "conditions": ["[STATUS] == 200"]
-            }
-        }
+        defaults = CommentedMap({
+            "interval": "1m",
+            "conditions": ["[STATUS] == 200"]
+        })
+        defaults.yaml_set_anchor('x-default-endpoint')
+        chart_values["config"]["x-default-endpoint"] = defaults
     
     # Add endpoints for each Ingress
     for ingress in ingresses:

@@ -11,12 +11,13 @@ from kubernetes import client, config
 from kubernetes.watch import Watch
 
 # Constants
-GATUS_RELEASE_NAME = os.getenv("GATUS_RELEASE_NAME", "gatus")
 GATUS_CHART = os.getenv("GATUS_CHART", "gatus/gatus")
+GATUS_CHART_REPOSITORY = os.getenv("GATUS_CHART_REPOSITORY", "https://avakarev.github.io/gatus-chart")
 GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "2.5.5")
-GATUS_HELM_REPO_URL = os.getenv("GATUS_HELM_REPO_URL", "https://avakarev.github.io/gatus-chart")
-GATUS_CONFIG_FILE = os.getenv("GATUS_CONFIG_FILE", "/tmp/gatus-config.yaml")
-GATUS_CHART_CONFIG = os.getenv("GATUS_CHART_CONFIG", "")  # JSON/YAML chart values string
+GATUS_HELM_NAMESPACE = os.getenv("GATUS_HELM_NAMESPACE", "gatus")
+GATUS_HELM_RELEASE = os.getenv("GATUS_HELM_RELEASE", "gatus")
+GATUS_HELM_VALUES = os.getenv("GATUS_HELM_VALUES", "")  # JSON/YAML chart values string
+GATUS_TEMP_CONFIG = "/tmp/gatus-config.yaml"
 
 # Setup logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,14 +41,14 @@ def generate_chart_values(ingresses):
     }
     
     # Load chart values from environment variable (supports JSON or YAML)
-    if GATUS_CHART_CONFIG:
+    if GATUS_HELM_VALUES:
         try:
-            env_values = yaml.safe_load(GATUS_CHART_CONFIG)
+            env_values = yaml.safe_load(GATUS_HELM_VALUES)
             if env_values:
                 chart_values.update(env_values)
-                logging.info("GATUS_CHART_CONFIG applied from environment")
+                logging.info("GATUS_HELM_VALUES applied from environment")
         except yaml.YAMLError as e:
-            logging.error(f"Invalid GATUS_CHART_CONFIG YAML: {e}")
+            logging.error(f"Invalid GATUS_HELM_VALUES YAML: {e}")
     
     # Ensure config section exists
     if "config" not in chart_values:
@@ -84,8 +85,8 @@ def deploy_gatus_chart(chart_values):
         values_file = f.name
     
     try:
-        cmd = ["helm", "upgrade", "--install", GATUS_RELEASE_NAME, GATUS_CHART,
-               "--version", GATUS_CHART_VERSION, "--atomic", "--values", values_file]
+        cmd = ["helm", "upgrade", "--install", GATUS_HELM_RELEASE, GATUS_CHART,
+               "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE, "--values", values_file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -104,7 +105,7 @@ def ensure_helm_repo():
         pass  # Repo exists
     else:
         # Add repo
-        result = subprocess.run(["helm", "repo", "add", "gatus", GATUS_HELM_REPO_URL], 
+        result = subprocess.run(["helm", "repo", "add", "gatus", GATUS_CHART_REPOSITORY], 
                               capture_output=True, text=True)
         if result.returncode != 0:
             logging.error(f"Failed to add repo: {result.stderr}")
@@ -121,7 +122,7 @@ def ensure_helm_repo():
 def config_changed(new_config):
     """Check if configuration has changed and save if needed"""
     try:
-        with open(GATUS_CONFIG_FILE, 'r') as f:
+        with open(GATUS_TEMP_CONFIG, 'r') as f:
             old_config = yaml.safe_load(f)
     except (FileNotFoundError, IOError):
         old_config = None
@@ -133,7 +134,7 @@ def config_changed(new_config):
     if old_yaml != new_yaml:
         # Save new config
         try:
-            with open(GATUS_CONFIG_FILE, 'w') as f:
+            with open(GATUS_TEMP_CONFIG, 'w') as f:
                 yaml.dump(new_config, f, default_flow_style=False)
         except IOError as e:
             logging.error(f"Failed to save config: {e}")

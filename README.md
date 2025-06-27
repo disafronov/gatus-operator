@@ -39,12 +39,12 @@ The operator can be configured using the following environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GATUS_RELEASE_NAME` | `gatus` | Helm release name for Gatus |
 | `GATUS_CHART` | `gatus/gatus` | Helm chart name |
+| `GATUS_CHART_REPOSITORY` | `https://avakarev.github.io/gatus-chart` | Helm repository URL |
 | `GATUS_CHART_VERSION` | `2.5.5` | Helm chart version |
-| `GATUS_HELM_REPO_URL` | `https://avakarev.github.io/gatus-chart` | Helm repository URL |
-| `GATUS_CONFIG_FILE` | `/tmp/gatus-config.yaml` | Local config file path |
-| `GATUS_CHART_CONFIG` | `` | JSON/YAML Helm chart values string |
+| `GATUS_HELM_NAMESPACE` | `gatus` | Kubernetes namespace for Gatus deployment |
+| `GATUS_HELM_RELEASE` | `gatus` | Helm release name for Gatus |
+| `GATUS_HELM_VALUES` | `` | JSON/YAML Helm chart values string |
 
 ### Gatus Configuration
 
@@ -101,9 +101,9 @@ export GATUS_CHART_CONFIG='{"image":{"tag":"v4.3.2"},"persistence":{"enabled":tr
 python main.py
 
 # With custom configuration
-export GATUS_RELEASE_NAME="my-gatus"
+export GATUS_HELM_RELEASE="my-gatus"
 export GATUS_CHART_VERSION="2.6.0"
-export GATUS_CHART_CONFIG='{"image":{"tag":"v4.3.2"},"config":{"ui":{"title":"Custom Dashboard"}}}'
+export GATUS_HELM_VALUES='{"image":{"tag":"v4.3.2"},"config":{"ui":{"title":"Custom Dashboard"}}}'
 python main.py
 ```
 
@@ -134,11 +134,13 @@ spec:
       - name: operator
         image: gatus-operator:latest
         env:
-        - name: GATUS_RELEASE_NAME
+        - name: GATUS_HELM_RELEASE
           value: "gatus"
         - name: GATUS_CHART_VERSION
           value: "2.5.5"
-        - name: GATUS_CHART_CONFIG
+        - name: GATUS_HELM_NAMESPACE
+          value: "gatus"
+        - name: GATUS_HELM_VALUES
           value: |
             image:
               tag: v4.3.2
@@ -187,7 +189,7 @@ Normal operations are logged to stdout, which is automatically collected by Kube
 
 1. **Helm not found**: Ensure Helm is installed and in PATH
 2. **Kubernetes access denied**: Check RBAC permissions
-3. **Invalid GATUS_CHART_CONFIG**: Check JSON/YAML syntax in environment variable
+3. **Invalid GATUS_HELM_VALUES**: Check JSON/YAML syntax in environment variable
 4. **Deployment fails**: Check Helm chart compatibility and cluster resources
 
 ### Debug Mode

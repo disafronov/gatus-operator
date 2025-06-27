@@ -46,7 +46,6 @@ def generate_chart_values(ingresses):
             env_values = yaml.safe_load(GATUS_HELM_VALUES)
             if env_values:
                 chart_values.update(env_values)
-                logging.info("GATUS_HELM_VALUES applied from environment")
         except yaml.YAMLError as e:
             logging.error(f"Invalid GATUS_HELM_VALUES YAML: {e}")
     
@@ -86,7 +85,8 @@ def deploy_gatus_chart(chart_values):
     
     try:
         cmd = ["helm", "upgrade", "--install", GATUS_HELM_RELEASE, GATUS_CHART,
-               "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE, "--values", values_file]
+               "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE, 
+               "--create-namespace", "--values", values_file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:

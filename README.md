@@ -13,29 +13,26 @@ Kubernetes operator that automatically configures and deploys Gatus monitoring b
 - Configuration change detection to avoid unnecessary deployments
 - Configurable via environment variables
 - Minimal logging (only errors)
+- Automatic namespace creation
 
 ## Requirements
 
 - Python 3.8+
+- UV (Python package manager)
 - Helm 3.x
 - Kubernetes cluster access
 
 ## Installation
 
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd gatus-operator
-
-# Install dependencies
-pip install -e .
+uv sync
 ```
 
 ## Configuration
 
 ### Environment Variables
-
-The operator can be configured using the following environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -46,39 +43,18 @@ The operator can be configured using the following environment variables:
 | `GATUS_HELM_RELEASE` | `gatus` | Helm release name for Gatus |
 | `GATUS_HELM_VALUES` | `` | JSON/YAML Helm chart values string |
 
-### Gatus Configuration
-
-Set `GATUS_CONFIG` with your configuration (supports both JSON and YAML formats):
-
-```bash
-# YAML format
-export GATUS_CONFIG='
-security:
-  basic:
-    username: admin
-    password: password
-ui:
-  title: "My Gatus Dashboard"
-'
-
-# JSON format
-export GATUS_CONFIG='{"security":{"basic":{"username":"admin","password":"password"}},"ui":{"title":"My Gatus Dashboard"}}'
-```
-
 ### Helm Chart Configuration
 
-Set `GATUS_CHART_CONFIG` with your Helm chart values (supports both JSON and YAML formats):
+Set `GATUS_HELM_VALUES` with your Helm chart values (supports both JSON and YAML formats):
 
 ```bash
 # YAML format
-export GATUS_CHART_CONFIG='
+export GATUS_HELM_VALUES='
 image:
   tag: v4.3.2
 persistence:
   enabled: true
   size: 1Gi
-service:
-  type: LoadBalancer
 config:
   security:
     basic:
@@ -87,9 +63,6 @@ config:
   ui:
     title: "My Gatus Dashboard"
 '
-
-# JSON format
-export GATUS_CHART_CONFIG='{"image":{"tag":"v4.3.2"},"persistence":{"enabled":true,"size":"1Gi"},"config":{"security":{"basic":{"username":"admin","password":"password"}},"ui":{"title":"My Gatus Dashboard"}}}'
 ```
 
 ## Usage
@@ -98,23 +71,19 @@ export GATUS_CHART_CONFIG='{"image":{"tag":"v4.3.2"},"persistence":{"enabled":tr
 
 ```bash
 # Basic usage with defaults
-python main.py
+uv run main.py
 
 # With custom configuration
 export GATUS_HELM_RELEASE="my-gatus"
 export GATUS_CHART_VERSION="2.6.0"
 export GATUS_HELM_VALUES='{"image":{"tag":"v4.3.2"},"config":{"ui":{"title":"Custom Dashboard"}}}'
-python main.py
+uv run main.py
 ```
 
 ### In Kubernetes Cluster
 
-```bash
-# Deploy as a Pod or Deployment
-kubectl apply -f deployment.yaml
-```
+Deploy as a Pod or Deployment with proper RBAC permissions:
 
-Example Deployment with environment variables:
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -130,6 +99,7 @@ spec:
       labels:
         app: gatus-operator
     spec:
+      serviceAccountName: gatus-operator
       containers:
       - name: operator
         image: gatus-operator:latest
@@ -154,6 +124,36 @@ spec:
                   password: password
               ui:
                 title: "Cluster Monitoring"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gatus-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gatus-operator
+rules:
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gatus-operator
+subjects:
+- kind: ServiceAccount
+  name: gatus-operator
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: gatus-operator
+  apiGroup: rbac.authorization.k8s.io
 ```
 
 ## How It Works
@@ -164,24 +164,21 @@ spec:
    - Generates Helm chart values with endpoints for each Ingress path
    - Compares with previous configuration
    - Deploys Gatus via Helm if configuration changed
+   - Creates namespace automatically if it doesn't exist
 
 ## Endpoint Generation
 
 For each Ingress rule and path, the operator creates a Gatus endpoint:
-- **Name**: `{namespace}: {protocol}://{host}{path}`
-- **Group**: Namespace name
-- **URL**: Full URL with protocol, host, and path
-- **Protocol**: HTTPS if TLS is configured, HTTP otherwise
+- Name: `{namespace}: {protocol}://{host}{path}`
+- Group: Namespace name
+- URL: Full URL with protocol, host, and path
+- Protocol: HTTPS if TLS is configured, HTTP otherwise
 
 The operator safely handles incomplete Ingress resources by skipping rules without HTTP paths.
 
 ## Logging
 
-The operator uses minimal logging:
-- **ERROR**: Critical errors that prevent operation
-- **INFO**: Configuration application (when DEBUG/INFO level enabled)
-
-Normal operations are logged to stdout, which is automatically collected by Kubernetes.
+The operator uses minimal logging - only ERROR level for critical issues. Normal operations are logged to stdout, which is automatically collected by Kubernetes.
 
 ## Troubleshooting
 
@@ -191,14 +188,3 @@ Normal operations are logged to stdout, which is automatically collected by Kube
 2. **Kubernetes access denied**: Check RBAC permissions
 3. **Invalid GATUS_HELM_VALUES**: Check JSON/YAML syntax in environment variable
 4. **Deployment fails**: Check Helm chart compatibility and cluster resources
-
-### Debug Mode
-
-To enable debug logging, modify the logging level in `main.py`:
-```python
-logging.basicConfig(level=logging.DEBUG, ...)
-```
-
-## License
-
-[License information]

@@ -133,19 +133,19 @@ def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
     if result.returncode != 0:
-        logging.error(f"Failed to list Helm repos: {result.stderr}")
+        logging.error("Failed to list Helm repos: %s", result.stderr.strip())
         return False
     
     if "gatus" not in result.stdout:
         result = subprocess.run(["helm", "repo", "add", "gatus", GATUS_CHART_REPOSITORY], 
                               capture_output=True, text=True)
         if result.returncode != 0:
-            logging.error(f"Failed to add repo: {result.stderr}")
+            logging.error("Failed to add repo: %s", result.stderr.strip())
             return False
     
     result = subprocess.run(["helm", "repo", "update"], capture_output=True, text=True)
     if result.returncode != 0:
-        logging.error(f"Failed to update repos: {result.stderr}")
+        logging.error("Failed to update repos: %s", result.stderr.strip())
         return False
     
     return True

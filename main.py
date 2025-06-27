@@ -49,6 +49,12 @@ def generate_chart_values(ingresses):
         try:
             env_values = yaml.safe_load(GATUS_HELM_VALUES)
             if env_values:
+                # Check if *defaults anchor is defined in user values
+                defaults_anchor_found = "&defaults" in str(env_values)
+                
+                if not defaults_anchor_found:
+                    raise Exception("GATUS_HELM_VALUES must define &defaults anchor")
+                
                 # Merge user values, but preserve operator-managed sections
                 for key, value in env_values.items():
                     if key == "config" and isinstance(value, dict):

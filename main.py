@@ -72,6 +72,9 @@ def generate_chart_values(ingresses):
     
     # Add endpoints for each Ingress
     for ingress in ingresses:
+        if not ingress.spec:
+            continue
+            
         namespace = ingress.metadata.namespace
         protocol = "https" if ingress.spec.tls else "http"
         

@@ -36,6 +36,8 @@ def get_kubernetes_client():
     return client.NetworkingV1Api()
 
 def yaml_to_str(data):
+    if data is None:
+        return None
     stream = io.StringIO()
     yaml.dump(data, stream)
     return stream.getvalue()
@@ -48,6 +50,7 @@ def run_helm_cmd(cmd):
     return True
 
 def generate_chart_values(ingresses):
+    """Generate Helm chart values based on Ingress resources"""
     chart_values = {
         "config": {
             "storage": {"type": "sqlite", "path": GATUS_DB_FILE},
@@ -104,6 +107,7 @@ def generate_chart_values(ingresses):
     return chart_values
 
 def deploy_gatus_chart(chart_values):
+    """Deploy Gatus via Helm using chart values"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
         yaml.dump(chart_values, f)
         values_file = f.name
@@ -119,6 +123,7 @@ def deploy_gatus_chart(chart_values):
         os.unlink(values_file)
 
 def ensure_helm_repo():
+    """Ensure Helm repository is added and updated"""
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
     if result.returncode != 0:
         logging.error("Failed to list Helm repos: %s", result.stderr.strip())
@@ -138,6 +143,7 @@ def ensure_helm_repo():
     return True
 
 def config_changed(new_config):
+    """Check if configuration has changed and save if needed"""
     try:
         with open(GATUS_TEMP_FILE, 'r') as f:
             old_config = yaml.load(f)
@@ -157,6 +163,7 @@ def config_changed(new_config):
     return False
 
 def watch_ingresses():
+    """Watch for Ingress resource changes and update Gatus configuration"""
     networking_v1 = get_kubernetes_client()
     w = Watch()
 
@@ -165,13 +172,15 @@ def watch_ingresses():
         return
 
     try:
+        # Watch for Ingress changes and update Gatus config
         for _ in w.stream(networking_v1.list_ingress_for_all_namespaces):
             try:
+                # Get all ingresses to generate complete config
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
-                config = generate_chart_values(ingresses)
+                chart_config = generate_chart_values(ingresses)
 
-                if config_changed(config):
-                    if not deploy_gatus_chart(config):
+                if config_changed(chart_config):
+                    if not deploy_gatus_chart(chart_config):
                         logging.error("Deployment failed")
             except Exception as e:
                 logging.error("Error processing change: %s", e)

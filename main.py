@@ -80,18 +80,15 @@ def generate_chart_values(ingresses):
     for ingress in ingresses:
         if not ingress.spec:
             continue
-            
         namespace = ingress.metadata.namespace
         protocol = "https" if ingress.spec.tls else "http"
         
         for rule in ingress.spec.rules:
             if not rule.http or not rule.http.paths:
                 continue
-                
             for path in rule.http.paths:
                 if not path.path:
                     continue
-                    
                 chart_values["config"]["endpoints"].append({
                     "<<": "*defaults",
                     "name": f"{namespace}: {protocol}://{rule.host}{path.path}",
@@ -123,23 +120,18 @@ def deploy_gatus_chart(chart_values):
 
 def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
-    # Check if repo exists
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
     if result.returncode != 0:
         logging.error(f"Failed to list Helm repos: {result.stderr}")
         return False
     
-    if "gatus" in result.stdout:
-        pass  # Repo exists
-    else:
-        # Add repo
+    if "gatus" not in result.stdout:
         result = subprocess.run(["helm", "repo", "add", "gatus", GATUS_CHART_REPOSITORY], 
                               capture_output=True, text=True)
         if result.returncode != 0:
             logging.error(f"Failed to add repo: {result.stderr}")
             return False
     
-    # Update repos
     result = subprocess.run(["helm", "repo", "update"], capture_output=True, text=True)
     if result.returncode != 0:
         logging.error(f"Failed to update repos: {result.stderr}")
@@ -155,12 +147,10 @@ def config_changed(new_config):
     except (FileNotFoundError, IOError):
         old_config = None
     
-    # Compare normalized YAML
     new_yaml = yaml.dump(new_config, default_flow_style=False, sort_keys=True)
     old_yaml = yaml.dump(old_config, default_flow_style=False, sort_keys=True) if old_config else None
     
     if old_yaml != new_yaml:
-        # Save new config
         try:
             with open(GATUS_TEMP_FILE, 'w') as f:
                 yaml.dump(new_config, f, default_flow_style=False)

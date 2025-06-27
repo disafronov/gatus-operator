@@ -65,7 +65,7 @@ def generate_chart_values(ingresses):
                         # Merge other sections normally
                         chart_values[key] = value
         except Exception as e:
-            logging.error(f"Invalid GATUS_HELM_VALUES YAML: {e}")
+            logging.error("Invalid GATUS_HELM_VALUES YAML: %s", e)
     
     # Ensure config section exists
     if "config" not in chart_values:
@@ -74,8 +74,8 @@ def generate_chart_values(ingresses):
         chart_values["config"]["endpoints"] = []
     
     # Add default endpoint settings if not provided by user
-    if not any("&x-default-endpoint" in str(chart_values)):
-        chart_values["x-default-endpoint"] = {
+    if "x-default-endpoint" not in chart_values["config"]:
+        chart_values["config"]["x-default-endpoint"] = {
             "&x-default-endpoint": {
                 "interval": "1m",
                 "conditions": ["[STATUS] == 200"]
@@ -112,15 +112,17 @@ def deploy_gatus_chart(chart_values):
         values_file = f.name
     
     try:
-        cmd = ["helm", "upgrade", "--install", GATUS_HELM_RELEASE, GATUS_CHART,
-               "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE, 
-               "--create-namespace", "--values", values_file]
+        cmd = [
+            "helm", "upgrade", "--install", GATUS_HELM_RELEASE, GATUS_CHART,
+            "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE, 
+            "--create-namespace", "--values", values_file
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
             return True
         else:
-            logging.error(f"Deployment failed: {result.stderr}")
+            logging.error("Deployment failed: %s", result.stderr.strip())
             return False
     finally:
         os.unlink(values_file)
@@ -154,13 +156,13 @@ def config_changed(new_config):
     except (FileNotFoundError, IOError):
         old_config = None
     
-    new_yaml = yaml.dump(new_config, default_flow_style=False, sort_keys=True)
-    old_yaml = yaml.dump(old_config, default_flow_style=False, sort_keys=True) if old_config else None
+    new_yaml = yaml.dump(new_config)
+    old_yaml = yaml.dump(old_config) if old_config else None
     
     if old_yaml != new_yaml:
         try:
             with open(GATUS_TEMP_FILE, 'w') as f:
-                yaml.dump(new_config, f, default_flow_style=False)
+                yaml.dump(new_config, f)
         except IOError as e:
             logging.error(f"Failed to save config: {e}")
         return True

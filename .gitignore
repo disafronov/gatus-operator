@@ -28,9 +28,3 @@ htmlcov/
 # Альтернативные виртуальные окружения
 env/
 venv/
-
-# Django translations
-*.mo
-
-# Django static files
-staticfiles/

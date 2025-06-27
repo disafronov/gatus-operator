@@ -16,7 +16,7 @@ GATUS_CHART = os.getenv("GATUS_CHART", "gatus/gatus")
 GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "2.5.5")
 GATUS_HELM_REPO_URL = os.getenv("GATUS_HELM_REPO_URL", "https://avakarev.github.io/gatus-chart")
 GATUS_CONFIG_FILE = os.getenv("GATUS_CONFIG_FILE", "/tmp/gatus-config.yaml")
-GATUS_CONFIG = os.getenv("GATUS_CONFIG", "")  # JSON/YAML config string
+GATUS_CHART_CONFIG = os.getenv("GATUS_CHART_CONFIG", "")  # JSON/YAML chart values string
 
 # Setup logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,23 +29,31 @@ def get_kubernetes_client():
         config.load_kube_config()
     return client.CoreV1Api(), client.NetworkingV1Api()
 
-def generate_gatus_config(ingresses):
-    """Generate Gatus configuration based on Ingress resources"""
-    # Start with base config
-    config = {
-        "storage": {"type": "sqlite", "path": "/data/gatus.db"},
-        "endpoints": []
+def generate_chart_values(ingresses):
+    """Generate Helm chart values based on Ingress resources"""
+    # Start with base chart values
+    chart_values = {
+        "config": {
+            "storage": {"type": "sqlite", "path": "/data/gatus.db"},
+            "endpoints": []
+        }
     }
     
-    # Load config from environment variable (supports JSON or YAML)
-    if GATUS_CONFIG:
+    # Load chart values from environment variable (supports JSON or YAML)
+    if GATUS_CHART_CONFIG:
         try:
-            env_config = yaml.safe_load(GATUS_CONFIG)
-            if env_config:
-                config.update(env_config)
-                logging.info("GATUS_CONFIG applied from environment")
+            env_values = yaml.safe_load(GATUS_CHART_CONFIG)
+            if env_values:
+                chart_values.update(env_values)
+                logging.info("GATUS_CHART_CONFIG applied from environment")
         except yaml.YAMLError as e:
-            logging.error(f"Invalid GATUS_CONFIG YAML: {e}")
+            logging.error(f"Invalid GATUS_CHART_CONFIG YAML: {e}")
+    
+    # Ensure config section exists
+    if "config" not in chart_values:
+        chart_values["config"] = {}
+    if "endpoints" not in chart_values["config"]:
+        chart_values["config"]["endpoints"] = []
     
     # Add endpoints for each Ingress
     for ingress in ingresses:
@@ -60,24 +68,24 @@ def generate_gatus_config(ingresses):
                 if not path.path:
                     continue
                     
-                config["endpoints"].append({
+                chart_values["config"]["endpoints"].append({
                     "<<": "*defaults",
                     "name": f"{namespace}: {protocol}://{rule.host}{path.path}",
                     "group": namespace,
                     "url": f"{protocol}://{rule.host}{path.path}"
                 })
     
-    return config
+    return chart_values
 
-def deploy_gatus(config_data):
-    """Deploy Gatus via Helm"""
+def deploy_gatus_chart(chart_values):
+    """Deploy Gatus via Helm using chart values"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump(config_data, f)
-        config_file = f.name
+        yaml.dump(chart_values, f)
+        values_file = f.name
     
     try:
         cmd = ["helm", "upgrade", "--install", GATUS_RELEASE_NAME, GATUS_CHART,
-               "--version", GATUS_CHART_VERSION, "--atomic", "--values", config_file]
+               "--version", GATUS_CHART_VERSION, "--atomic", "--values", values_file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -86,7 +94,7 @@ def deploy_gatus(config_data):
             logging.error(f"Deployment failed: {result.stderr}")
             return False
     finally:
-        os.unlink(config_file)
+        os.unlink(values_file)
 
 def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
@@ -146,10 +154,10 @@ def watch_ingresses():
         for event in w.stream(networking_v1.list_ingress_for_all_namespaces):
             try:
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
-                config = generate_gatus_config(ingresses)
+                config = generate_chart_values(ingresses)
                 
                 if config_changed(config):
-                    if not deploy_gatus(config):
+                    if not deploy_gatus_chart(config):
                         logging.error("Deployment failed")
                     
             except Exception as e:

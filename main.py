@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import io
+import time
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from kubernetes import client, config
@@ -21,6 +22,7 @@ GATUS_HELM_RELEASE = os.getenv("GATUS_HELM_RELEASE", "gatus")
 GATUS_HELM_VALUES = os.getenv("GATUS_HELM_VALUES", "")  # JSON/YAML
 GATUS_DB_FILE = os.getenv("GATUS_DB_FILE", "/srv/gatus.db")
 GATUS_TEMP_FILE = os.getenv("GATUS_TEMP_FILE", "/tmp/gatus-config.tmp.yaml")
+DEBOUNCE_DELAY = float(os.getenv("DEBOUNCE_DELAY", "1.0"))  # seconds
 
 PROTECTED_CONFIG_KEYS = ["endpoints", "storage"]
 
@@ -118,7 +120,10 @@ def deploy_gatus_chart(chart_values):
             "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE,
             "--create-namespace", "--values", values_file
         ]
-        return run_helm_cmd(cmd)
+        success = run_helm_cmd(cmd)
+        if not success:
+            logging.error("Gatus deployment failed")
+        return success
     finally:
         os.unlink(values_file)
 
@@ -173,21 +178,34 @@ def watch_ingresses():
 
     deploying = False
     pending = False
-    last_config = None
 
     def do_deploy(config):
-        nonlocal deploying, pending, last_config
+        nonlocal deploying, pending
         deploying = True
-        while True:
-            if config_changed(config):
-                if not deploy_gatus_chart(config):
-                    logging.error("Deployment failed")
-            if pending:
-                pending = False
-                config = generate_chart_values(networking_v1.list_ingress_for_all_namespaces().items)
-                continue
-            break
-        deploying = False
+        
+        try:
+            while True:
+                if config_changed(config):
+                    if not deploy_gatus_chart(config):
+                        logging.error("Deployment failed")
+                        break
+                
+                if pending:
+                    pending = False
+                    # Small delay to debounce rapid changes
+                    time.sleep(DEBOUNCE_DELAY)
+                    try:
+                        ingresses = networking_v1.list_ingress_for_all_namespaces().items
+                        config = generate_chart_values(ingresses)
+                    except Exception as e:
+                        logging.error("Failed to fetch Ingress resources: %s", e)
+                        break
+                    continue
+                break
+        except Exception as e:
+            logging.error("Error during deployment: %s", e)
+        finally:
+            deploying = False
 
     try:
         # Watch for Ingress changes and update Gatus config
@@ -195,7 +213,7 @@ def watch_ingresses():
             try:
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
                 chart_config = generate_chart_values(ingresses)
-                last_config = chart_config
+                
                 if not deploying:
                     do_deploy(chart_config)
                 else:

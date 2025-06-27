@@ -6,6 +6,7 @@ import tempfile
 import logging
 import signal
 import sys
+import io
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from kubernetes import client, config
@@ -157,15 +158,23 @@ def config_changed(new_config):
     except (FileNotFoundError, IOError):
         old_config = None
     
-    new_yaml = yaml.dump(new_config)
-    old_yaml = yaml.dump(old_config) if old_config else None
+    new_stream = io.StringIO()
+    yaml.dump(new_config, new_stream)
+    new_yaml = new_stream.getvalue()
+    
+    if old_config:
+        old_stream = io.StringIO()
+        yaml.dump(old_config, old_stream)
+        old_yaml = old_stream.getvalue()
+    else:
+        old_yaml = None
     
     if old_yaml != new_yaml:
         try:
             with open(GATUS_TEMP_FILE, 'w') as f:
                 yaml.dump(new_config, f)
         except IOError as e:
-            logging.error(f"Failed to save config: {e}")
+            logging.error("Failed to save config: %s", e)
         return True
     
     return False

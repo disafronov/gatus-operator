@@ -76,10 +76,11 @@ def generate_chart_values(ingresses):
     
     # 3. Check if x-default-endpoint anchor exists, create if not
     anchor_obj = None
-    for key, value in config_section.items():
-        if hasattr(value, 'anchor') and value.anchor and value.anchor.value == 'x-default-endpoint':
-            anchor_obj = value
-            break
+    if isinstance(config_section, dict):
+        for key, value in config_section.items():
+            if hasattr(value, 'anchor') and value.anchor and value.anchor.value == 'x-default-endpoint':
+                anchor_obj = value
+                break
 
     if anchor_obj is None:
         anchor_obj = CommentedMap({
@@ -87,6 +88,12 @@ def generate_chart_values(ingresses):
             "conditions": ["[STATUS] == 200"]
         })
         anchor_obj.yaml_set_anchor('x-default-endpoint')
+        
+        # Ensure config_section is a dict before assigning
+        if not isinstance(config_section, dict):
+            config_section = CommentedMap()
+            chart_values["config"] = config_section
+            
         config_section["x-default-endpoint"] = anchor_obj
     else:
         # Ensure the found object has the anchor
@@ -94,6 +101,11 @@ def generate_chart_values(ingresses):
             anchor_obj.yaml_set_anchor('x-default-endpoint')
 
     # 4. Add/override storage and endpoints sections
+    if not isinstance(config_section, dict):
+        # If config_section is not a dict, replace it with a new CommentedMap
+        config_section = CommentedMap()
+        chart_values["config"] = config_section
+    
     config_section["storage"] = {"type": "sqlite", "path": GATUS_DB_FILE}
     config_section["endpoints"] = []
 

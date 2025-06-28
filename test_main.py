@@ -135,6 +135,23 @@ class TestGenerateChartValues:
         # Should skip ingress without paths
         assert len(result['config']['endpoints']) == 0
 
+    def test_scalar_config_section(self):
+        """Test when config section is a scalar value instead of dict"""
+        # Create config where config section is a string
+        existing_config = CommentedMap()
+        existing_config['config'] = "some string value"  # scalar instead of dict
+        
+        with patch('main.GATUS_HELM_VALUES', yaml_to_str(existing_config)):
+            result = generate_chart_values([])
+            
+            # Should handle scalar config section gracefully
+            assert 'config' in result
+            assert isinstance(result['config'], dict)  # should be converted to dict
+            assert 'x-default-endpoint' in result['config']
+            assert 'storage' in result['config']
+            assert 'endpoints' in result['config']
+            assert len(result['config']['endpoints']) == 0
+
 class TestYamlToStr:
     """Test yaml_to_str function"""
     

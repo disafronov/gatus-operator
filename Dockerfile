@@ -4,15 +4,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
+# Install ca-certificates for SSL support
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates
+
 ##########################
 
 FROM foundation AS loader
 
-# install wget and ca-certificates
+# install wget
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
     apt-get update && \
-    apt-get install -y --no-install-recommends wget ca-certificates
+    apt-get install -y --no-install-recommends wget
 
 ARG HELM_VERSION=3.18.3
 
@@ -48,12 +54,6 @@ COPY --chown=ubuntu:ubuntu main.py /home/ubuntu/app/
 
 FROM base AS runtime
 
-# Install ca-certificates for SSL support
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
-    apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates
-
 # Copy Helm from loader stage
 COPY --from=loader /usr/local/bin/helm /usr/local/bin/helm
 
@@ -65,4 +65,4 @@ COPY --from=builder --chown=ubuntu:ubuntu /home/ubuntu/app/ /home/ubuntu/app/
 
 ENV PATH="/home/ubuntu/app/.venv/bin:$PATH"
 
-ENTRYPOINT ["python3", "main.py"] 
+ENTRYPOINT ["python3", "main.py"]

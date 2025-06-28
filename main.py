@@ -29,6 +29,8 @@ PROTECTED_CONFIG_KEYS = ["endpoints", "storage"]
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s %(levelname)s: %(message)s')
 
 yaml = YAML()
+yaml.preserve_quotes = True
+yaml.indent(mapping=2, sequence=4, offset=2)
 
 def get_kubernetes_client():
     try:
@@ -41,7 +43,8 @@ def yaml_to_str(data):
     if data is None:
         return None
     stream = io.StringIO()
-    yaml.dump(data, stream)
+    # Ensure we preserve anchors, aliases, and comments
+    yaml.dump(data, stream, default_flow_style=False, width=float("inf"))
     return stream.getvalue()
 
 def run_helm_cmd(cmd):
@@ -53,13 +56,9 @@ def run_helm_cmd(cmd):
 
 def generate_chart_values(ingresses):
     """Generate Helm chart values based on Ingress resources"""
-    chart_values = {
-        "config": {
-            "storage": {"type": "sqlite", "path": GATUS_DB_FILE},
-            "endpoints": []
-        }
-    }
+    chart_values = CommentedMap()
 
+    # 1. Load user configuration, ignoring storage and endpoints sections
     if GATUS_HELM_VALUES.strip():
         try:
             env_values = yaml.load(GATUS_HELM_VALUES)
@@ -67,7 +66,7 @@ def generate_chart_values(ingresses):
                 for key, value in env_values.items():
                     if key == "config" and isinstance(value, dict):
                         if "config" not in chart_values:
-                            chart_values["config"] = {}
+                            chart_values["config"] = CommentedMap()
                         for k, v in value.items():
                             if k not in PROTECTED_CONFIG_KEYS:
                                 chart_values["config"][k] = v
@@ -76,18 +75,31 @@ def generate_chart_values(ingresses):
         except Exception as e:
             logging.error("Invalid GATUS_HELM_VALUES YAML: %s", e)
 
+    # Ensure config section exists
     if "config" not in chart_values:
-        chart_values["config"] = {}
-    if "endpoints" not in chart_values["config"]:
-        chart_values["config"]["endpoints"] = []
+        chart_values["config"] = CommentedMap()
 
-    if "x-default-endpoint" not in chart_values["config"]:
+    # 2. Check if x-default-endpoint anchor exists in user config, create if not
+    has_default_anchor = False
+    if GATUS_HELM_VALUES.strip():
+        try:
+            # Check if the YAML string contains the anchor
+            if "&x-default-endpoint" in GATUS_HELM_VALUES:
+                has_default_anchor = True
+        except Exception:
+            pass
+
+    if not has_default_anchor:
         defaults = CommentedMap({
             "interval": "1m",
             "conditions": ["[STATUS] == 200"]
         })
         defaults.yaml_set_anchor('x-default-endpoint')
         chart_values["config"]["x-default-endpoint"] = defaults
+
+    # 3. Add storage and endpoints sections
+    chart_values["config"]["storage"] = {"type": "sqlite", "path": GATUS_DB_FILE}
+    chart_values["config"]["endpoints"] = []
 
     for ingress in ingresses:
         if not ingress.spec:
@@ -111,7 +123,8 @@ def generate_chart_values(ingresses):
 def deploy_gatus_chart(chart_values):
     """Deploy Gatus via Helm using chart values"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump(chart_values, f)
+        # Ensure we preserve anchors, aliases, and comments
+        yaml.dump(chart_values, f, default_flow_style=False, width=float("inf"))
         values_file = f.name
 
     try:
@@ -160,7 +173,8 @@ def config_changed(new_config):
     if old_yaml != new_yaml:
         try:
             with open(GATUS_TEMP_FILE, 'w') as f:
-                yaml.dump(new_config, f)
+                # Ensure we preserve anchors, aliases, and comments
+                yaml.dump(new_config, f, default_flow_style=False, width=float("inf"))
         except IOError as e:
             logging.error("Failed to save config: %s", e)
         return True

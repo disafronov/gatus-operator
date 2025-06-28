@@ -6,7 +6,7 @@ Kubernetes operator that automatically configures and deploys Gatus monitoring b
 
 - Watches for Ingress resource changes across all namespaces
 - Automatically generates Gatus configuration from Ingress rules
-- Deploys Gatus via Helm with atomic updates
+- Deploys Gatus via Helm with atomic updates using the official [TwiN/gatus](https://github.com/TwiN/gatus) chart
 - Supports both TLS and non-TLS endpoints
 - Graceful shutdown handling
 - Comprehensive error handling
@@ -14,6 +14,16 @@ Kubernetes operator that automatically configures and deploys Gatus monitoring b
 - Configurable via environment variables
 - Minimal logging (only errors)
 - Automatic namespace creation
+
+## Chart Upgrade
+
+This operator now uses the official [TwiN/gatus](https://github.com/TwiN/helm-charts) Helm chart (v1.3.0) instead of the previous community chart. This provides:
+
+- **Official support** from the Gatus maintainer
+- **Better security** with proper security contexts and non-root execution
+- **Health checks** with readiness and liveness probes
+- **Improved reliability** with rolling update strategy
+- **Latest Gatus version** (v5.18.1)
 
 ## Requirements
 
@@ -36,9 +46,9 @@ uv sync
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GATUS_CHART` | `gatus/gatus` | Helm chart name |
-| `GATUS_CHART_REPOSITORY` | `https://avakarev.github.io/gatus-chart` | Helm repository URL |
-| `GATUS_CHART_VERSION` | `2.5.5` | Helm chart version |
+| `GATUS_CHART` | `twin/gatus` | Helm chart name |
+| `GATUS_CHART_REPOSITORY` | `https://twin.github.io/helm-charts` | Helm repository URL |
+| `GATUS_CHART_VERSION` | `1.3.0` | Helm chart version |
 | `GATUS_HELM_NAMESPACE` | `gatus` | Kubernetes namespace for Gatus deployment |
 | `GATUS_HELM_RELEASE` | `gatus` | Helm release name for Gatus |
 | `GATUS_HELM_VALUES` | `` | JSON/YAML Helm chart values string |
@@ -51,17 +61,17 @@ Set `GATUS_HELM_VALUES` with your Helm chart values (supports both JSON and YAML
 # YAML format
 export GATUS_HELM_VALUES='
 image:
-  tag: v4.3.2
+  tag: v5.18.1
 persistence:
   enabled: true
   size: 1Gi
 config:
-  security:
-    basic:
-      username: admin
-      password: password
-  ui:
-    title: "My Gatus Dashboard"
+  endpoints:
+    - name: example
+      url: https://example.org
+      interval: 60s
+      conditions:
+        - "[STATUS] == 200"
 '
 ```
 
@@ -107,23 +117,23 @@ spec:
         - name: GATUS_HELM_RELEASE
           value: "gatus"
         - name: GATUS_CHART_VERSION
-          value: "2.5.5"
+          value: "1.3.0"
         - name: GATUS_HELM_NAMESPACE
           value: "gatus"
         - name: GATUS_HELM_VALUES
           value: |
             image:
-              tag: v4.3.2
+              tag: v5.18.1
             persistence:
               enabled: true
               size: 1Gi
             config:
-              security:
-                basic:
-                  username: admin
-                  password: password
-              ui:
-                title: "Cluster Monitoring"
+              endpoints:
+                - name: example
+                  url: https://example.org
+                  interval: 60s
+                  conditions:
+                    - "[STATUS] == 200"
 ---
 apiVersion: v1
 kind: ServiceAccount

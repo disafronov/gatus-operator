@@ -14,13 +14,13 @@ from kubernetes import client, config
 from kubernetes.watch import Watch
 
 # Constants
-GATUS_CHART = os.getenv("GATUS_CHART", "gatus/gatus")
-GATUS_CHART_REPOSITORY = os.getenv("GATUS_CHART_REPOSITORY", "https://avakarev.github.io/gatus-chart")
-GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "2.5.5")
+GATUS_CHART = os.getenv("GATUS_CHART", "twin/gatus")
+GATUS_CHART_REPOSITORY = os.getenv("GATUS_CHART_REPOSITORY", "https://twin.github.io/helm-charts")
+GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "1.3.0")
 GATUS_HELM_NAMESPACE = os.getenv("GATUS_HELM_NAMESPACE", "gatus")
 GATUS_HELM_RELEASE = os.getenv("GATUS_HELM_RELEASE", "gatus")
 GATUS_HELM_VALUES = os.getenv("GATUS_HELM_VALUES", "")  # JSON/YAML
-GATUS_DB_FILE = os.getenv("GATUS_DB_FILE", "/srv/gatus.db")
+GATUS_DB_FILE = os.getenv("GATUS_DB_FILE", "/data/gatus.db")
 GATUS_TEMP_FILE = os.getenv("GATUS_TEMP_FILE", "/tmp/gatus-config.tmp.yaml")
 DEBOUNCE_DELAY = float(os.getenv("DEBOUNCE_DELAY", "1.0"))  # seconds
 

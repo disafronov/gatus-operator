@@ -14,7 +14,7 @@ from kubernetes import client, config
 from kubernetes.watch import Watch
 
 # Constants
-GATUS_CHART = os.getenv("GATUS_CHART", "twin/gatus")
+GATUS_CHART = os.getenv("GATUS_CHART", "gatus")
 GATUS_CHART_REPOSITORY = os.getenv("GATUS_CHART_REPOSITORY", "https://twin.github.io/helm-charts")
 GATUS_CHART_VERSION = os.getenv("GATUS_CHART_VERSION", "1.3.0")
 GATUS_HELM_NAMESPACE = os.getenv("GATUS_HELM_NAMESPACE", "gatus")
@@ -116,7 +116,7 @@ def deploy_gatus_chart(chart_values):
 
     try:
         cmd = [
-            "helm", "upgrade", "--install", GATUS_HELM_RELEASE, GATUS_CHART,
+            "helm", "upgrade", "--install", GATUS_HELM_RELEASE, f"gatus/{GATUS_CHART}",
             "--version", GATUS_CHART_VERSION, "--atomic", "--namespace", GATUS_HELM_NAMESPACE,
             "--create-namespace", "--values", values_file
         ]

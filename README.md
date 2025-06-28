@@ -46,7 +46,7 @@ uv sync
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GATUS_CHART` | `twin/gatus` | Helm chart name |
+| `GATUS_CHART` | `gatus` | Helm chart name (without repository prefix) |
 | `GATUS_CHART_REPOSITORY` | `https://twin.github.io/helm-charts` | Helm repository URL |
 | `GATUS_CHART_VERSION` | `1.3.0` | Helm chart version |
 | `GATUS_HELM_NAMESPACE` | `gatus` | Kubernetes namespace for Gatus deployment |

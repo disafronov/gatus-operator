@@ -74,8 +74,14 @@ def generate_chart_values(ingresses):
     
     config_section = chart_values["config"]
     
-    # 3. Check if x-default-endpoint exists, create if not
-    if "x-default-endpoint" not in config_section:
+    # 3. Check if x-default-endpoint anchor exists, create if not
+    anchor_obj = None
+    for key, value in config_section.items():
+        if hasattr(value, 'anchor') and value.anchor and value.anchor.value == 'x-default-endpoint':
+            anchor_obj = value
+            break
+
+    if anchor_obj is None:
         anchor_obj = CommentedMap({
             "interval": "1m",
             "conditions": ["[STATUS] == 200"]
@@ -83,9 +89,8 @@ def generate_chart_values(ingresses):
         anchor_obj.yaml_set_anchor('x-default-endpoint')
         config_section["x-default-endpoint"] = anchor_obj
     else:
-        anchor_obj = config_section["x-default-endpoint"]
-        # Если у объекта нет якоря, ставим его (важно для merge)
-        if not getattr(anchor_obj, 'anchor', None):
+        # Ensure the found object has the anchor
+        if not hasattr(anchor_obj, 'anchor') or anchor_obj.anchor is None:
             anchor_obj.yaml_set_anchor('x-default-endpoint')
 
     # 4. Add/override storage and endpoints sections

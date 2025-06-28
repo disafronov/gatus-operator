@@ -48,6 +48,12 @@ COPY --chown=ubuntu:ubuntu main.py /home/ubuntu/app/
 
 FROM base AS runtime
 
+# Install ca-certificates for SSL support
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates
+
 # Copy Helm from loader stage
 COPY --from=loader /usr/local/bin/helm /usr/local/bin/helm
 

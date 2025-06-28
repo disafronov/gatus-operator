@@ -60,7 +60,7 @@ def generate_chart_values(ingresses):
         }
     }
 
-    if GATUS_HELM_VALUES:
+    if GATUS_HELM_VALUES.strip():
         try:
             env_values = yaml.load(GATUS_HELM_VALUES)
             if env_values:

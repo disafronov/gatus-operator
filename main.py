@@ -130,9 +130,8 @@ def deploy_gatus_chart(chart_values):
 def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
-    if result.returncode != 0:
-        logging.error("Failed to list Helm repos: %s", result.stderr.strip())
-        return False
+    # If no repos exist, result.returncode might be non-zero, but that's OK
+    # We just need to check if "gatus" is in the output (even if empty)
     
     if "gatus" not in result.stdout:
         result_add = subprocess.run(["helm", "repo", "add", "gatus", GATUS_CHART_REPOSITORY], capture_output=True, text=True)

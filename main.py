@@ -43,8 +43,7 @@ def yaml_to_str(data):
     if data is None:
         return None
     stream = io.StringIO()
-    # Ensure we preserve anchors, aliases, and comments
-    yaml.dump(data, stream, default_flow_style=False, width=float("inf"))
+    yaml.dump(data, stream)
     return stream.getvalue()
 
 def run_helm_cmd(cmd):
@@ -56,51 +55,44 @@ def run_helm_cmd(cmd):
 
 def generate_chart_values(ingresses):
     """Generate Helm chart values based on Ingress resources"""
+    # 1. Load user configuration as CommentedMap to preserve anchors
     chart_values = CommentedMap()
-
-    # 1. Load user configuration, ignoring storage and endpoints sections
     if GATUS_HELM_VALUES.strip():
         try:
-            env_values = yaml.load(GATUS_HELM_VALUES)
-            if env_values:
-                for key, value in env_values.items():
-                    if key == "config" and isinstance(value, dict):
-                        if "config" not in chart_values:
-                            chart_values["config"] = CommentedMap()
-                        for k, v in value.items():
-                            if k not in PROTECTED_CONFIG_KEYS:
-                                chart_values["config"][k] = v
-                    else:
-                        chart_values[key] = value
+            chart_values = yaml.load(GATUS_HELM_VALUES)
+            if chart_values is None:
+                chart_values = CommentedMap()
         except Exception as e:
             logging.error("Invalid GATUS_HELM_VALUES YAML: %s", e)
+            chart_values = CommentedMap()
+    else:
+        chart_values = CommentedMap()
 
-    # Ensure config section exists
+    # 2. Ensure config section exists
     if "config" not in chart_values:
         chart_values["config"] = CommentedMap()
-
-    # 2. Check if x-default-endpoint anchor exists in user config, create if not
-    has_default_anchor = False
-    if GATUS_HELM_VALUES.strip():
-        try:
-            # Check if the YAML string contains the anchor
-            if "&x-default-endpoint" in GATUS_HELM_VALUES:
-                has_default_anchor = True
-        except Exception:
-            pass
-
-    if not has_default_anchor:
-        defaults = CommentedMap({
+    
+    config_section = chart_values["config"]
+    
+    # 3. Check if x-default-endpoint exists, create if not
+    if "x-default-endpoint" not in config_section:
+        anchor_obj = CommentedMap({
             "interval": "1m",
             "conditions": ["[STATUS] == 200"]
         })
-        defaults.yaml_set_anchor('x-default-endpoint')
-        chart_values["config"]["x-default-endpoint"] = defaults
+        anchor_obj.yaml_set_anchor('x-default-endpoint')
+        config_section["x-default-endpoint"] = anchor_obj
+    else:
+        anchor_obj = config_section["x-default-endpoint"]
+        # Если у объекта нет якоря, ставим его (важно для merge)
+        if not getattr(anchor_obj, 'anchor', None):
+            anchor_obj.yaml_set_anchor('x-default-endpoint')
 
-    # 3. Add storage and endpoints sections
-    chart_values["config"]["storage"] = {"type": "sqlite", "path": GATUS_DB_FILE}
-    chart_values["config"]["endpoints"] = []
+    # 4. Add/override storage and endpoints sections
+    config_section["storage"] = {"type": "sqlite", "path": GATUS_DB_FILE}
+    config_section["endpoints"] = []
 
+    # 5. Add endpoints with merge-key
     for ingress in ingresses:
         if not ingress.spec:
             continue
@@ -112,19 +104,19 @@ def generate_chart_values(ingresses):
             for path in rule.http.paths:
                 if not path.path:
                     continue
-                chart_values["config"]["endpoints"].append({
-                    "<<": "*x-default-endpoint",
-                    "name": f"{namespace}: {protocol}://{rule.host}{path.path}",
-                    "group": namespace,
-                    "url": f"{protocol}://{rule.host}{path.path}"
-                })
+                endpoint = CommentedMap()
+                endpoint['<<'] = anchor_obj  # merge-key!
+                endpoint["name"] = f"{namespace}: {protocol}://{rule.host}{path.path}"
+                endpoint["group"] = namespace
+                endpoint["url"] = f"{protocol}://{rule.host}{path.path}"
+                config_section["endpoints"].append(endpoint)
+    
     return chart_values
 
 def deploy_gatus_chart(chart_values):
     """Deploy Gatus via Helm using chart values"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        # Ensure we preserve anchors, aliases, and comments
-        yaml.dump(chart_values, f, default_flow_style=False, width=float("inf"))
+        yaml.dump(chart_values, f)
         values_file = f.name
 
     try:
@@ -143,38 +135,31 @@ def deploy_gatus_chart(chart_values):
 def ensure_helm_repo():
     """Ensure Helm repository is added and updated"""
     result = subprocess.run(["helm", "repo", "list"], capture_output=True, text=True)
-    # If no repos exist, result.returncode might be non-zero, but that's OK
-    # We just need to check if "gatus" is in the output (even if empty)
-    
     if "gatus" not in result.stdout:
         result_add = subprocess.run(["helm", "repo", "add", "gatus", GATUS_CHART_REPOSITORY], capture_output=True, text=True)
         if result_add.returncode != 0:
             logging.error("Failed to add repo: %s", result_add.stderr.strip())
             return False
-    
     result_update = subprocess.run(["helm", "repo", "update"], capture_output=True, text=True)
     if result_update.returncode != 0:
         logging.error("Failed to update repos: %s", result_update.stderr.strip())
         return False
-    
     return True
 
 def config_changed(new_config):
     """Check if configuration has changed and save if needed"""
     try:
         with open(GATUS_TEMP_FILE, 'r') as f:
-            old_config = yaml.load(f)
+            old_yaml_str = f.read()
     except (FileNotFoundError, IOError):
-        old_config = None
+        old_yaml_str = None
 
-    new_yaml = yaml_to_str(new_config)
-    old_yaml = yaml_to_str(old_config) if old_config else None
+    new_yaml_str = yaml_to_str(new_config)
 
-    if old_yaml != new_yaml:
+    if old_yaml_str != new_yaml_str:
         try:
             with open(GATUS_TEMP_FILE, 'w') as f:
-                # Ensure we preserve anchors, aliases, and comments
-                yaml.dump(new_config, f, default_flow_style=False, width=float("inf"))
+                yaml.dump(new_config, f)
         except IOError as e:
             logging.error("Failed to save config: %s", e)
         return True
@@ -195,17 +180,14 @@ def watch_ingresses():
     def do_deploy(config):
         nonlocal deploying, pending
         deploying = True
-        
         try:
             while True:
                 if config_changed(config):
                     if not deploy_gatus_chart(config):
                         logging.error("Deployment failed")
                         break
-                
                 if pending:
                     pending = False
-                    # Small delay to debounce rapid changes
                     time.sleep(DEBOUNCE_DELAY)
                     try:
                         ingresses = networking_v1.list_ingress_for_all_namespaces().items
@@ -221,12 +203,10 @@ def watch_ingresses():
             deploying = False
 
     try:
-        # Watch for Ingress changes and update Gatus config
         for _ in w.stream(networking_v1.list_ingress_for_all_namespaces):
             try:
                 ingresses = networking_v1.list_ingress_for_all_namespaces().items
                 chart_config = generate_chart_values(ingresses)
-                
                 if not deploying:
                     do_deploy(chart_config)
                 else:

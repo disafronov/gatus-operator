@@ -1,4 +1,4 @@
-FROM ubuntu:noble-20250529 AS foundation
+FROM ubuntu:noble-20250619 AS foundation
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
